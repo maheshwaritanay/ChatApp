@@ -33,7 +33,7 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    username: Mapped[str] = mapped_column(String(50), nullable=False)
     email: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
 
     memberships: Mapped[list["ConversationMember"]] = relationship(back_populates="user")
