@@ -1,1 +1,4 @@
 .idea/
+uv.lock
+__pycache__/
+chat.db
