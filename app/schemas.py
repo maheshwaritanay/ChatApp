@@ -39,3 +39,9 @@ class ConversationListItem(BaseModel):
     created_at: str
     last_message_at: str | None
     members: list[MemberResponse]
+
+class FileUploadResponse(BaseModel):
+    file_url: str
+    file_name: str
+    mime_type: str
+    file_size_bytes: str

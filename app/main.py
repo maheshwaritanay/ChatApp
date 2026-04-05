@@ -1,6 +1,8 @@
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from starlette.staticfiles import StaticFiles
+
 from app.models import Base, engine
 from app.routes import router
 from app.websockets import websocket_endpoint
@@ -17,7 +19,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down application")
 
 app = FastAPI(title="ChatApp", lifespan=lifespan)
-
+app.mount("/files", StaticFiles(directory="artifacts"), name="files")
 
 #Routes
 

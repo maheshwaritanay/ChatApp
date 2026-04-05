@@ -1,8 +1,11 @@
-from fastapi import Depends, HTTPException, APIRouter
+import os.path
+import uuid
+
+from fastapi import Depends, HTTPException, APIRouter, File, UploadFile
 from sqlalchemy.orm import Session
 
 from app.schemas import ConversationListItem, MemberResponse, CreateUserResponse, CreateUserRequest, \
-    CreateConversationResponse, CreateConversationRequest
+    CreateConversationResponse, CreateConversationRequest, FileUploadResponse
 from app.models import get_db, ConversationMember, Conversation, User
 
 
@@ -247,5 +250,37 @@ def create_conversation(body: CreateConversationRequest, db: Session = Depends(g
         members=members_response,
     )
 
+UPLOAD_DIR = "artifacts"
+MAX_FILE_SIZE = 10 * 1024 * 1024 #max file size 10Mb
+ALLOWED_TYPES = {
+    "image/jpeg", "image/png",
+    "audio/mpeg", "audio/wav", "audio/mp4",
+    "video/mp4",
+    "application/pdf",
+}
 
+@router.post("/uploads", response_model=FileUploadResponse, status_code=201)
+async def upload_file(file: UploadFile = File(...)):
 
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=415, detail=f"File type not supported: {file.content_type}")
+
+    content = await file.read()
+
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail=f"File size was larger than 10Mb")
+
+    ext = os.path.splitext(file.filename)[1] if file.filename else ""
+    unique_name = f"{uuid.uuid4()}/{ext}"
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    file_path = os.path.join(UPLOAD_DIR, unique_name)
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    return FileUploadResponse(
+        file_url=f"/files/{unique_name}",
+        file_name=file.filename or unique_name,
+        mime_type=file.content_type or "application/octet-stream",
+        file_size_bytes=str(len(content))
+    )
