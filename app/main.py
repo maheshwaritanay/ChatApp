@@ -35,7 +35,7 @@ class CreateUserResponse(BaseModel):
 
 class CreateConversationRequest(BaseModel):
     type: str
-    name: str
+    name: str | None = None
     created_by: str
     member_ids: list[str]
     member_roles: dict[str, str] | None = None
@@ -212,7 +212,7 @@ async def handle_typing(sender_id: str, data: dict):
     finally:
         db.close()
 
-@router.websocket("/ws")
+@app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
     db = SessionLocal()
     try:
