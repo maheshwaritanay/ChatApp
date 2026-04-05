@@ -5,7 +5,8 @@ from fastapi import Depends, HTTPException, APIRouter, File, UploadFile
 from sqlalchemy.orm import Session
 
 from app.schemas import ConversationListItem, MemberResponse, CreateUserResponse, CreateUserRequest, \
-    CreateConversationResponse, CreateConversationRequest, FileUploadResponse
+    CreateConversationResponse, CreateConversationRequest, FileUploadResponse, RemoveMemberRequest, \
+    UpdateMemberRoleRequest, AddMemberRequest
 from app.models import get_db, ConversationMember, Conversation, User
 
 
@@ -284,3 +285,166 @@ async def upload_file(file: UploadFile = File(...)):
         mime_type=file.content_type or "application/octet-stream",
         file_size_bytes=str(len(content))
     )
+
+
+def verify_admin_role(db: Session, conversation_id: str, requested_by: str):
+
+    membership = (
+        db.query(ConversationMember)
+        .filter(
+            ConversationMember.conversation_id == conversation_id,
+            ConversationMember.user_id == requested_by,
+        )
+        .first()
+    )
+
+    if not membership:
+        raise HTTPException(status_code=403, detail="Not a member of this conversation")
+
+    if membership.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can perform this action")
+
+    return membership
+
+
+@router.post("/conversations/{conversation_id}/members", response_model=MemberResponse, status_code=201)
+def add_member(conversation_id: str, body: AddMemberRequest, db: Session = Depends(get_db)):
+    verify_admin_role(db, conversation_id, body.requested_by)
+
+    # check for direct conversations
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conversation.type == "direct":
+        raise HTTPException(status_code=400, detail="Cannot add members to direct conversations")
+
+    # Check if user exists
+    user = db.query(User).filter(User.id == body.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Check if already a member
+    existing = (
+        db.query(ConversationMember)
+        .filter(
+            ConversationMember.conversation_id == conversation_id,
+            ConversationMember.user_id == body.user_id,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="User is already a member")
+
+    # Validate role
+    if body.role not in ("admin", "write", "read"):
+        raise HTTPException(status_code=400, detail="Role must be 'admin', 'write', or 'read'")
+
+    member = ConversationMember(
+        conversation_id=conversation_id,
+        user_id=body.user_id,
+        role=body.role,
+    )
+    db.add(member)
+    db.commit()
+
+    return MemberResponse(
+        user_id=member.user_id,
+        username=user.username,
+        role=member.role,
+    )
+
+
+@router.put("/conversations/{conversation_id}/members/{user_id}", response_model=MemberResponse)
+def update_member_role(
+    conversation_id: str,
+    user_id: str,
+    body: UpdateMemberRoleRequest,
+    db: Session = Depends(get_db),
+):
+    verify_admin_role(db, conversation_id, body.requested_by)
+
+    # Validate role
+    if body.role not in ("admin", "write", "read"):
+        raise HTTPException(status_code=400, detail="Role must be 'admin', 'write', or 'read'")
+
+    # Find the member to update
+    membership = (
+        db.query(ConversationMember)
+        .filter(
+            ConversationMember.conversation_id == conversation_id,
+            ConversationMember.user_id == user_id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # ensure at least 1 admin
+    if membership.role == "admin" and body.role != "admin":
+        admin_count = (
+            db.query(ConversationMember)
+            .filter(
+                ConversationMember.conversation_id == conversation_id,
+                ConversationMember.role == "admin",
+            )
+            .count()
+        )
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot demote the last admin")
+
+    membership.role = body.role
+    db.commit()
+
+    user = db.query(User).filter(User.id == user_id).first()
+
+    return MemberResponse(
+        user_id=membership.user_id,
+        username=user.username,
+        role=membership.role,
+    )
+
+
+@router.delete("/conversations/{conversation_id}/members/{user_id}", status_code=200)
+def remove_member(
+    conversation_id: str,
+    user_id: str,
+    body: RemoveMemberRequest,
+    db: Session = Depends(get_db),
+):
+    verify_admin_role(db, conversation_id, body.requested_by)
+
+    # Can't remove from direct conversations
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if conversation.type == "direct":
+        raise HTTPException(status_code=400, detail="Cannot remove members from direct conversations")
+
+    # Find the member to remove
+    membership = (
+        db.query(ConversationMember)
+        .filter(
+            ConversationMember.conversation_id == conversation_id,
+            ConversationMember.user_id == user_id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Can't remove the last admin
+    if membership.role == "admin":
+        admin_count = (
+            db.query(ConversationMember)
+            .filter(
+                ConversationMember.conversation_id == conversation_id,
+                ConversationMember.role == "admin",
+            )
+            .count()
+        )
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot remove the last admin. Transfer admin first.")
+
+    db.delete(membership)
+    db.commit()
+
+    return {"removed_user_id": user_id}

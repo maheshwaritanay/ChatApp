@@ -45,3 +45,17 @@ class FileUploadResponse(BaseModel):
     file_name: str
     mime_type: str
     file_size_bytes: str
+
+class AddMemberRequest(BaseModel):
+    user_id: str
+    role: str = "write"
+    requested_by: str
+
+
+class UpdateMemberRoleRequest(BaseModel):
+    role: str
+    requested_by: str
+
+
+class RemoveMemberRequest(BaseModel):
+    requested_by: str
