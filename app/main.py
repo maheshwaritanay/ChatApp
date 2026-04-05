@@ -212,6 +212,7 @@ async def handle_typing(sender_id: str, data: dict):
     finally:
         db.close()
 
+@router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
     db = SessionLocal()
     try:
